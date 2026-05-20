@@ -164,9 +164,26 @@ const DB = {
 // ============================================================
 //  STATE
 // ============================================================
+const PRELOAD = [
+  {name:'Иностранный язык', grades:[
+    {v:5,d:'2025-03-20'},{v:4,d:'2025-03-13'},{v:4,d:'2025-02-20'},{v:3,d:'2025-02-18'},
+    {v:2,d:'2025-02-06'},{v:4,d:'2025-02-02'},{v:4,d:'2025-01-30'},{v:4,d:'2025-01-28'},
+    {v:4,d:'2025-01-16'},{v:5,d:'2025-01-14'},{v:4,d:'2025-05-18'},{v:3,d:'2025-05-15'},
+    {v:4,d:'2025-04-27'},{v:4,d:'2025-04-22'},{v:5,d:'2025-04-15'},{v:3,d:'2025-04-08'},
+    {v:2,d:'2025-03-27'},{v:4,d:'2025-03-23'},
+  ]},
+  {name:'Информатика', grades:[
+    {v:3,d:'2025-05-19'},{v:4,d:'2025-05-15'},{v:4,d:'2025-05-13'},{v:4,d:'2025-05-06'},
+    {v:4,d:'2025-04-29'},{v:4,d:'2025-04-28'},{v:5,d:'2025-04-22'},{v:3,d:'2025-04-14'},
+    {v:3,d:'2025-04-08'},{v:3,d:'2025-03-24'},{v:2,d:'2025-03-20'},{v:4,d:'2025-03-10'},
+    {v:3,d:'2025-02-24'},{v:5,d:'2025-02-17'},{v:4,d:'2025-02-11'},{v:5,d:'2025-02-10'},
+    {v:5,d:'2025-02-03'},{v:2,d:'2025-01-28'},{v:4,d:'2025-01-20'},{v:4,d:'2025-01-12'},
+  ]},
+];
+
 let state = {
   tab: 'home',
-  subjects: DB.load('subjects', []),
+  subjects: DB.load('subjects', null),
   events: DB.load('events', []),
   settings: DB.load('settings', {
     thresholds: {5:4.6, 4:3.6, 3:2.6, 2:1.6}
@@ -176,6 +193,16 @@ let state = {
   calYear: new Date().getFullYear(),
   activeSubject: null,
 };
+
+// First launch — load preloaded data
+if(state.subjects === null){
+  state.subjects = PRELOAD.map(p=>({
+    id: id(),
+    name: p.name,
+    grades: p.grades.map(g=>({id:id(), value:g.v, date:g.d, note:'из журнала'}))
+  }));
+  DB.save('subjects', state.subjects);
+}
 
 // ============================================================
 //  UTILS
@@ -236,14 +263,14 @@ function gradeRequirements(subj, thr){
   // Для роста: сколько N нужно чтобы получить оценку выше текущей
   const toGet5  = needToReach(5, thr[5]);
   const toGet4  = needToReach(4, thr[4]);
+  const toGet3  = needToReach(3, thr[3]);
 
-  // Для потери: сколько двоек/троек нужно чтобы потерять текущую оценку
-  // Теряем оценку G если средний падает ниже порога G
   const loseBy2 = currentGrade >= 4 ? needToFall(2, thr[currentGrade]) : null;
   const loseBy3 = currentGrade >= 4 ? needToFall(3, thr[currentGrade]) : null;
   const lose3by2 = currentGrade === 3 ? needToFall(2, thr[3]) : null;
+  const lose3by3 = currentGrade === 3 ? needToFall(3, thr[3]) : null;
 
-  return {a, currentGrade, toGet5, toGet4, loseBy2, loseBy3, lose3by2, sum, count};
+  return {a, currentGrade, toGet5, toGet4, toGet3, loseBy2, loseBy3, lose3by2, lose3by3, sum, count};
 }
 function id(){return Math.random().toString(36).slice(2,9)}
 function fmt(d){return new Date(d).toLocaleDateString('ru',{day:'numeric',month:'short'})}
@@ -496,6 +523,16 @@ function renderSubjectDetail(subjectId){
       <div class="need-row">
         <span class="need-label">Потеря от <b style="color:var(--red)">двоек</b></span>
         <span class="need-val" style="color:var(--red)">${req.lose3by2===null?'Не уронить':req.lose3by2===0?'Уже упало!':req.lose3by2+' двоек'}</span>
+      </div>
+      <div class="need-row">
+        <span class="need-label">Потеря от <b style="color:var(--amber)">троек</b></span>
+        <span class="need-val" style="color:var(--amber)">${req.lose3by3===null?'Не уронить':req.lose3by3===0?'Уже упало!':req.lose3by3+' троек'}</span>
+      </div>` : ''}
+
+      ${req.currentGrade === 2 ? `
+      <div class="need-row">
+        <span class="need-label">Получить <b style="color:var(--amber)">3</b></span>
+        <span class="need-val" style="color:var(--amber)">${req.toGet3===0?'Уже есть!':req.toGet3!==null?`${req.toGet3}×«3»`:'Сложно'}</span>
       </div>` : ''}
     </div>`:''}
 
@@ -1083,7 +1120,7 @@ async function handleFile(file){
     try{
       const resp=await fetch('https://api.anthropic.com/v1/messages',{
         method:'POST',
-        headers:{'Content-Type':'application/json'},
+        headers:{'Content-Type':'application/json','anthropic-dangerous-direct-browser-access':'true'},
         body:JSON.stringify({
           model:'claude-sonnet-4-20250514',
           max_tokens:1000,
